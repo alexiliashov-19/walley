@@ -9,27 +9,19 @@ import os
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 
 # ── Admin Telegram username (WITHOUT @) ───────
-# Consultation requests will be forwarded here as a message.
-# The admin must have started a conversation with the bot at least once,
-# OR use a numeric chat ID in ADMIN_CHAT_ID instead (see below).
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "bologanvictor")
 
-# ── Alternative: numeric chat ID (more reliable) ──
-# Get yours from @userinfobot. Leave empty if using ADMIN_USERNAME.
+# ── Numeric chat ID (more reliable than username) ──
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "")
 
-# ── Optional: external booking/consultation URL ───
-# If set, the "Vreau consultație" button opens this link directly.
-# If empty, bot sends a notification to admin instead.
-# Examples:
-#   https://calendly.com/victor-bologan/consultatie
-#   https://wa.me/37360000000
+# ── Optional: external booking URL ───────────
 CONSULTATION_URL = os.getenv("CONSULTATION_URL", "")
 
+# ── Meta Conversions API ──────────────────────
+META_PIXEL_ID     = os.getenv("META_PIXEL_ID", "1524453224847070")
+META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN", "EAAYlJzkZCZCFMBRl25khiWJGmXDgZBZAjsonoLIUZAaSIBaAKCmFZBcInriSrM2ZC9Yn0GDZAh6hKLZCZBbynB23D8VjU7yD1C10HKqhFV3FoTYVCVhwyjnhWAoU73liskcZC0FKiMFlGuEfTnZAPxj3ySeRWBSuozQFoXMTymXbZBEVESSNwtRlUwPJu1ocrGnrLM6k5gQZDZD")
+
 # ── Three videos ──────────────────────────────
-# label  = button text shown to user
-# title  = used inside the welcome message
-# url    = full YouTube / Vimeo / any link
 VIDEOS = {
     "v1": {
         "label": "🎬 Video 1 — Blocaje și venituri",

@@ -7,6 +7,10 @@ Flow: /start → welcome + btn → video1 + btn → video2 + btn → video3 + bt
 
 import logging
 import asyncio
+import hashlib
+import time
+import json
+import urllib.request
 from datetime import datetime, timedelta
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -15,7 +19,8 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters,
 )
 
-from config import BOT_TOKEN, CONSULTATION_URL, ADMIN_USERNAME, ADMIN_CHAT_ID, VIDEOS
+from config import BOT_TOKEN, CONSULTATION_URL, ADMIN_USERNAME, ADMIN_CHAT_ID, VIDEOS, META_PIXEL_ID, META_ACCESS_TOKEN
+
 from messages import MSG
 
 logging.basicConfig(
@@ -24,6 +29,47 @@ logging.basicConfig(
     handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────
+# Meta Conversions API
+# ─────────────────────────────────────────────
+
+def send_meta_event(event_name: str, user_id: int, username: str = None):
+    """Send event to Meta Conversions API (server-side)."""
+    if not META_PIXEL_ID or not META_ACCESS_TOKEN:
+        logger.warning("Meta Pixel not configured, skipping event.")
+        return
+
+    # Hash external_id (Telegram user ID) as required by Meta
+    external_id_hashed = hashlib.sha256(str(user_id).encode()).hexdigest()
+
+    payload = {
+        "data": [
+            {
+                "event_name": event_name,
+                "event_time": int(time.time()),
+                "action_source": "other",
+                "user_data": {
+                    "external_id": external_id_hashed,
+                },
+                "custom_data": {
+                    "content_name": "Consultatie Victor Bologan",
+                    "currency": "RON",
+                },
+            }
+        ]
+    }
+
+    url = f"https://graph.facebook.com/v19.0/{META_PIXEL_ID}/events?access_token={META_ACCESS_TOKEN}"
+
+    try:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            result = json.loads(resp.read().decode())
+            logger.info(f"Meta event '{event_name}' sent for user {user_id}: {result}")
+    except Exception as e:
+        logger.error(f"Meta CAPI error: {e}")
 
 # ─────────────────────────────────────────────
 # State helper
@@ -147,6 +193,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "joined_at": datetime.now().isoformat(),
     }
 
+    # Meta: track bot start as ViewContent
+    send_meta_event("ViewContent", user.id, user.username)
+
     await update.message.reply_text(
         MSG["welcome"],
         reply_markup=kb_get_video(),
@@ -160,6 +209,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     state = get_state(context)
     chat_id = update.effective_chat.id
+    user = update.effective_user
 
     # ── Trimite Video 1 ──────────────────────────────────────────────
     if data == "get_video":
@@ -173,7 +223,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=kb_watched(1),
         )
 
-        # Schedule 24h reminder (starts from first video)
         if context.job_queue:
             for j in context.job_queue.get_jobs_by_name(f"reminder_{chat_id}"):
                 j.schedule_removal()
@@ -237,11 +286,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         state["step"] = "consultation_offered"
 
-    # ── Cerere consultație (fără URL extern) ────────────────────────
+    # ── Cerere consultație ───────────────────────────────────────────
     elif data == "request_consultation":
         state["step"] = "consultation_requested"
         await query.edit_message_text(MSG["received"])
-        await notify_admin(context, update.effective_user)
+
+        # Notify admin
+        await notify_admin(context, user)
+
+        # 🎯 Meta: track Lead event
+        send_meta_event("Lead", user.id, user.username)
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
