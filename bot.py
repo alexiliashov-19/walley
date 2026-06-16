@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Telegram Bot — Victor Bologan Hypnotherapy Funnel
-Bilingual: Romanian 🇷🇴 / Russian 🇷🇺
+Romanian only 🇷🇴
+Flow: /start → welcome + btn → all 3 videos + btn → topic → warmup → consultation
 """
 
 import logging
@@ -14,8 +15,8 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters,
 )
 
-from config import BOT_TOKEN, CONSULTATION_URL, ADMIN_CHAT_ID, VIDEO_URL_RO, VIDEO_URL_RU
-from messages import MESSAGES, LANG_SELECT_TEXT
+from config import BOT_TOKEN, CONSULTATION_URL, ADMIN_USERNAME, ADMIN_CHAT_ID, VIDEOS
+from messages import MSG
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -25,14 +26,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────
-# Helpers
+# State helper
 # ─────────────────────────────────────────────
 
 def get_state(context: ContextTypes.DEFAULT_TYPE) -> dict:
     if "state" not in context.user_data:
         context.user_data["state"] = {
-            "step": "lang_select",
-            "lang": None,
+            "step": "welcome",
             "video_sent": False,
             "watched": False,
             "topic_chosen": False,
@@ -40,45 +40,40 @@ def get_state(context: ContextTypes.DEFAULT_TYPE) -> dict:
         }
     return context.user_data["state"]
 
-def t(lang: str, key: str) -> str:
-    return MESSAGES[lang][key]
-
-def get_video_url(lang: str) -> str:
-    return VIDEO_URL_RO if lang == "RO" else VIDEO_URL_RU
-
 # ─────────────────────────────────────────────
 # Keyboards
 # ─────────────────────────────────────────────
 
-def kb_lang_select():
+def kb_get_video():
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("🇷🇴 Română", callback_data="lang_RO"),
-        InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_RU"),
+        InlineKeyboardButton("▶️ Primește video-ul", callback_data="get_video")
     ]])
 
-def kb_get_video(lang):
-    return InlineKeyboardMarkup([[InlineKeyboardButton(t(lang, "btn_get_video"), callback_data="get_video")]])
+def kb_watched():
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Am urmărit", callback_data="watched")
+    ]])
 
-def kb_watched(lang):
-    return InlineKeyboardMarkup([[InlineKeyboardButton(t(lang, "btn_watched"), callback_data="watched")]])
+def kb_topics():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(label, callback_data=cb)]
+        for label, cb in MSG["topics"]
+    ])
 
-def kb_topics(lang):
-    return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=cb)] for label, cb in t(lang, "topics")])
-
-def kb_consultation(lang):
-    label = t(lang, "btn_consultation")
+def kb_consultation():
+    label = "📅 Vreau consultație"
     if CONSULTATION_URL:
         return InlineKeyboardMarkup([[InlineKeyboardButton(label, url=CONSULTATION_URL)]])
     return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data="request_consultation")]])
 
-def kb_reminder(lang):
-    label = t(lang, "btn_reminder_consult")
+def kb_reminder():
+    label = "📅 Analizez cu Victor"
     if CONSULTATION_URL:
         return InlineKeyboardMarkup([[InlineKeyboardButton(label, url=CONSULTATION_URL)]])
     return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data="request_consultation")]])
 
 # ─────────────────────────────────────────────
-# Scheduled jobs
+# Scheduled reminders
 # ─────────────────────────────────────────────
 
 async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
@@ -86,15 +81,13 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
     chat_id = job.data["chat_id"]
     user_data = job.data["user_data"]
     state = user_data.get("state", {})
-    lang = state.get("lang", "RO")
 
-    if state.get("step") in ("watched", "topic_chosen", "video_sent"):
+    if state.get("step") in ("video_sent", "watched", "topic_chosen"):
         try:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=t(lang, "reminder_24h"),
-                parse_mode="Markdown",
-                reply_markup=kb_reminder(lang),
+                text=MSG["reminder_24h"],
+                reply_markup=kb_reminder(),
             )
             context.job_queue.run_once(
                 send_final_cta,
@@ -110,15 +103,13 @@ async def send_final_cta(context: ContextTypes.DEFAULT_TYPE):
     chat_id = job.data["chat_id"]
     user_data = job.data["user_data"]
     state = user_data.get("state", {})
-    lang = state.get("lang", "RO")
 
     if state.get("step") != "consultation_requested":
         try:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=t(lang, "final_cta"),
-                parse_mode="Markdown",
-                reply_markup=kb_consultation(lang),
+                text=MSG["final_cta"],
+                reply_markup=kb_consultation(),
             )
         except Exception as e:
             logger.error(f"Final CTA error {chat_id}: {e}")
@@ -127,20 +118,19 @@ async def send_final_cta(context: ContextTypes.DEFAULT_TYPE):
 # Admin notification
 # ─────────────────────────────────────────────
 
-async def notify_admin(context, chat_id, user, lang):
-    if not ADMIN_CHAT_ID:
+async def notify_admin(context: ContextTypes.DEFAULT_TYPE, user):
+    # Prefer numeric ADMIN_CHAT_ID; fall back to @username
+    target = ADMIN_CHAT_ID or (f"@{ADMIN_USERNAME.lstrip('@')}" if ADMIN_USERNAME else None)
+    if not target:
         return
     try:
-        flag = "🇷🇴" if lang == "RO" else "🇷🇺"
-        lang_name = "Română" if lang == "RO" else "Русский"
         text = (
-            f"🔔 *Cerere consultație / Запрос консультации!*\n\n"
-            f"🌐 Limba: {flag} {lang_name}\n"
+            f"🔔 Cerere consultație nouă!\n\n"
             f"👤 {user.first_name} {user.last_name or ''}\n"
-            f"🆔 ID: `{user.id}`\n"
-            f"📱 @{user.username or 'N/A'}"
+            f"📱 @{user.username or 'fără username'}\n"
+            f"🆔 ID: {user.id}"
         )
-        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode="Markdown")
+        await context.bot.send_message(chat_id=target, text=text)
     except Exception as e:
         logger.error(f"Admin notify error: {e}")
 
@@ -153,19 +143,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"User: {user.id} @{user.username} {user.first_name}")
 
     context.user_data["state"] = {
-        "step": "lang_select",
-        "lang": None,
+        "step": "welcome",
         "video_sent": False,
         "watched": False,
         "topic_chosen": False,
         "joined_at": datetime.now().isoformat(),
     }
 
+    # Mesaj 1: Bun venit
     await update.message.reply_text(
-        LANG_SELECT_TEXT,
-        parse_mode="Markdown",
-        reply_markup=kb_lang_select(),
+        MSG["welcome"],
+        reply_markup=kb_get_video(),
     )
+
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -175,33 +165,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = get_state(context)
     chat_id = update.effective_chat.id
 
-    # ── Language selection ──
-    if data.startswith("lang_"):
-        lang = data.split("_")[1]
-        state["lang"] = lang
-        state["step"] = "welcome"
-        await query.edit_message_text(
-            t(lang, "welcome"),
-            parse_mode="Markdown",
-            reply_markup=kb_get_video(lang),
-        )
-        return
-
-    lang = state.get("lang", "RO")
-
-    # ── Send video ──
+    # ── Mesaj 2: Trimite toate 3 video-urile ──
     if data == "get_video":
         state["video_sent"] = True
         state["step"] = "video_sent"
-        url = get_video_url(lang)
-        msg = t(lang, "video").replace("{video_url}", url)
 
-        await query.edit_message_text(
-            msg,
-            parse_mode="Markdown",
-            reply_markup=kb_watched(lang),
+        # Build video message with all 3 URLs
+        video_text = (
+            MSG["video"]
+            .replace("{video_url_1}", VIDEOS["v1"]["url"])
+            .replace("{video_url_2}", VIDEOS["v2"]["url"])
+            .replace("{video_url_3}", VIDEOS["v3"]["url"])
         )
 
+        await query.edit_message_text(
+            video_text,
+            reply_markup=kb_watched(),
+        )
+
+        # Schedule 24h reminder
         if context.job_queue:
             for j in context.job_queue.get_jobs_by_name(f"reminder_{chat_id}"):
                 j.schedule_removal()
@@ -212,53 +194,55 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 name=f"reminder_{chat_id}",
             )
 
-    # ── After watching ──
+    # ── Mesaj 3: Întrebare după vizionare ──
     elif data == "watched":
         state["watched"] = True
         state["step"] = "watched"
         await query.edit_message_text(
-            t(lang, "after_video"),
-            parse_mode="Markdown",
-            reply_markup=kb_topics(lang),
+            MSG["after_video"],
+            reply_markup=kb_topics(),
         )
 
-    # ── Topic chosen ──
+    # ── Mesaj 4 + 5: Temă → warmup → ofertă consultație ──
     elif data.startswith("topic_"):
         state["topic_chosen"] = True
         state["topic"] = data
         state["step"] = "topic_chosen"
 
-        await query.edit_message_text(t(lang, "thanks_choice"), parse_mode="Markdown")
+        # Edit current message to remove buttons
+        await query.edit_message_reply_markup(reply_markup=None)
+
+        # Mesaj 4: Warmup
         await asyncio.sleep(1)
-        await context.bot.send_message(chat_id=chat_id, text=t(lang, "warmup"), parse_mode="Markdown")
+        await context.bot.send_message(chat_id=chat_id, text=MSG["warmup"])
+
+        # Mesaj 5: Ofertă consultație
         await asyncio.sleep(2)
         await context.bot.send_message(
             chat_id=chat_id,
-            text=t(lang, "consultation"),
-            parse_mode="Markdown",
-            reply_markup=kb_consultation(lang),
+            text=MSG["consultation"],
+            reply_markup=kb_consultation(),
         )
         state["step"] = "consultation_offered"
 
-    # ── Consultation request (no external URL configured) ──
+    # ── Cerere consultație (fără URL extern) ──
     elif data == "request_consultation":
         state["step"] = "consultation_requested"
-        await query.edit_message_text(t(lang, "received"), parse_mode="Markdown")
-        await notify_admin(context, chat_id, update.effective_user, lang)
+        await query.edit_message_text(MSG["received"])
+        await notify_admin(context, update.effective_user)
+
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = get_state(context)
-    step = state.get("step", "lang_select")
-    lang = state.get("lang", "RO")
+    step = state.get("step", "welcome")
 
-    if step == "lang_select":
-        await update.message.reply_text(LANG_SELECT_TEXT, parse_mode="Markdown", reply_markup=kb_lang_select())
-    elif step == "welcome":
-        await update.message.reply_text(t(lang, "welcome"), parse_mode="Markdown", reply_markup=kb_get_video(lang))
+    if step == "welcome":
+        await update.message.reply_text(MSG["welcome"], reply_markup=kb_get_video())
     elif step == "video_sent":
-        await update.message.reply_text(t(lang, "use_buttons"), parse_mode="Markdown")
+        await update.message.reply_text("Apasă «Am urmărit» când ești gata. 😊")
     else:
-        await update.message.reply_text(t(lang, "use_start"), parse_mode="Markdown")
+        await update.message.reply_text("Scrie /start pentru a reporni. 🔄")
+
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
@@ -268,7 +252,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 # ─────────────────────────────────────────────
 
 def main():
-    logger.info("Starting Victor Bologan Bot (RO/RU)...")
+    logger.info("Starting VictorBologanBot...")
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
