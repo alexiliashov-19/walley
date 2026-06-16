@@ -1,7 +1,7 @@
 """
 All bot messages — Romanian only 🇷🇴
 Edit text here. Never touch bot.py.
-{video_url_1}, {video_url_2}, {video_url_3} are filled automatically in the video message.
+{video_url_1}, {video_url_2}, {video_url_3} are filled automatically in the video messages.
 """
 
 MSG = {
@@ -16,17 +16,35 @@ MSG = {
         "care pot influența veniturile, vânzările și capacitatea de a acționa."
     ),
 
-    # ── Mesaj 2: Livrare video — toate 3 la rând ──────────────────────
-    # {video_url_1}, {video_url_2}, {video_url_3} replaced automatically
-    "video": (
-        "Iată video-urile gratuite. "
-        "Îți recomandăm să le urmărești într-un moment liniștit. "
-        "Durata: aproximativ 20 de minute fiecare. "
+    # ── Mesaj 2a: Video 1 ─────────────────────────────────────────────
+    # {video_url_1} replaced automatically
+    "video_1": (
+        "🎬 Video 1 din 3\n\n"
+        "Îți recomandăm să îl urmărești într-un moment liniștit. "
+        "Durata: aproximativ 20 de minute.\n\n"
+        "{video_url_1}\n\n"
+        "Apasă «Am urmărit» când ești gata pentru video-ul următor."
+    ),
+
+    # ── Mesaj 2b: Video 2 ─────────────────────────────────────────────
+    # {video_url_2} replaced automatically
+    "video_2": (
+        "🎬 Video 2 din 3\n\n"
+        "Continuăm. Îți recomandăm să îl urmărești tot într-un moment liniștit. "
+        "Durata: aproximativ 20 de minute.\n\n"
+        "{video_url_2}\n\n"
+        "Apasă «Am urmărit» când ești gata pentru ultimul video."
+    ),
+
+    # ── Mesaj 2c: Video 3 ─────────────────────────────────────────────
+    # {video_url_3} replaced automatically
+    "video_3": (
+        "🎬 Video 3 din 3\n\n"
+        "Ultimul video din serie. "
         "La final vei primi câteva întrebări care te pot ajuta să înțelegi "
         "mai clar propriul tău blocaj interior.\n\n"
-        "🎬 Video 1: {video_url_1}\n\n"
-        "🎬 Video 2: {video_url_2}\n\n"
-        "🎬 Video 3: {video_url_3}"
+        "{video_url_3}\n\n"
+        "Apasă «Am urmărit» când ai terminat."
     ),
 
     # ── Mesaj 3: Întrebare după vizionare ─────────────────────────────

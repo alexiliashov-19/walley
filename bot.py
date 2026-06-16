@@ -2,7 +2,7 @@
 """
 Telegram Bot — Victor Bologan Hypnotherapy Funnel
 Romanian only 🇷🇴
-Flow: /start → welcome + btn → all 3 videos + btn → topic → warmup → consultation
+Flow: /start → welcome + btn → video1 + btn → video2 + btn → video3 + btn → topic → warmup → consultation
 """
 
 import logging
@@ -33,8 +33,7 @@ def get_state(context: ContextTypes.DEFAULT_TYPE) -> dict:
     if "state" not in context.user_data:
         context.user_data["state"] = {
             "step": "welcome",
-            "video_sent": False,
-            "watched": False,
+            "videos_watched": 0,
             "topic_chosen": False,
             "joined_at": datetime.now().isoformat(),
         }
@@ -49,9 +48,9 @@ def kb_get_video():
         InlineKeyboardButton("▶️ Primește video-ul", callback_data="get_video")
     ]])
 
-def kb_watched():
+def kb_watched(video_num: int):
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Am urmărit", callback_data="watched")
+        InlineKeyboardButton("✅ Am urmărit", callback_data=f"watched_{video_num}")
     ]])
 
 def kb_topics():
@@ -82,7 +81,7 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
     user_data = job.data["user_data"]
     state = user_data.get("state", {})
 
-    if state.get("step") in ("video_sent", "watched", "topic_chosen"):
+    if state.get("step") in ("video1_sent", "video2_sent", "video3_sent", "all_watched", "topic_chosen"):
         try:
             await context.bot.send_message(
                 chat_id=chat_id,
@@ -119,7 +118,6 @@ async def send_final_cta(context: ContextTypes.DEFAULT_TYPE):
 # ─────────────────────────────────────────────
 
 async def notify_admin(context: ContextTypes.DEFAULT_TYPE, user):
-    # Prefer numeric ADMIN_CHAT_ID; fall back to @username
     target = ADMIN_CHAT_ID or (f"@{ADMIN_USERNAME.lstrip('@')}" if ADMIN_USERNAME else None)
     if not target:
         return
@@ -144,13 +142,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["state"] = {
         "step": "welcome",
-        "video_sent": False,
-        "watched": False,
+        "videos_watched": 0,
         "topic_chosen": False,
         "joined_at": datetime.now().isoformat(),
     }
 
-    # Mesaj 1: Bun venit
     await update.message.reply_text(
         MSG["welcome"],
         reply_markup=kb_get_video(),
@@ -165,25 +161,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = get_state(context)
     chat_id = update.effective_chat.id
 
-    # ── Mesaj 2: Trimite toate 3 video-urile ──
+    # ── Trimite Video 1 ──────────────────────────────────────────────
     if data == "get_video":
-        state["video_sent"] = True
-        state["step"] = "video_sent"
+        state["step"] = "video1_sent"
+        state["videos_watched"] = 0
 
-        # Build video message with all 3 URLs
-        video_text = (
-            MSG["video"]
-            .replace("{video_url_1}", VIDEOS["v1"]["url"])
-            .replace("{video_url_2}", VIDEOS["v2"]["url"])
-            .replace("{video_url_3}", VIDEOS["v3"]["url"])
-        )
+        video_text = MSG["video_1"].replace("{video_url_1}", VIDEOS["v1"]["url"])
 
         await query.edit_message_text(
             video_text,
-            reply_markup=kb_watched(),
+            reply_markup=kb_watched(1),
         )
 
-        # Schedule 24h reminder
+        # Schedule 24h reminder (starts from first video)
         if context.job_queue:
             for j in context.job_queue.get_jobs_by_name(f"reminder_{chat_id}"):
                 j.schedule_removal()
@@ -194,29 +184,51 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 name=f"reminder_{chat_id}",
             )
 
-    # ── Mesaj 3: Întrebare după vizionare ──
-    elif data == "watched":
-        state["watched"] = True
-        state["step"] = "watched"
+    # ── Am urmărit Video 1 → trimite Video 2 ────────────────────────
+    elif data == "watched_1":
+        state["videos_watched"] = 1
+        state["step"] = "video2_sent"
+
+        video_text = MSG["video_2"].replace("{video_url_2}", VIDEOS["v2"]["url"])
+
+        await query.edit_message_text(
+            video_text,
+            reply_markup=kb_watched(2),
+        )
+
+    # ── Am urmărit Video 2 → trimite Video 3 ────────────────────────
+    elif data == "watched_2":
+        state["videos_watched"] = 2
+        state["step"] = "video3_sent"
+
+        video_text = MSG["video_3"].replace("{video_url_3}", VIDEOS["v3"]["url"])
+
+        await query.edit_message_text(
+            video_text,
+            reply_markup=kb_watched(3),
+        )
+
+    # ── Am urmărit Video 3 → Întrebare despre temă ──────────────────
+    elif data == "watched_3":
+        state["videos_watched"] = 3
+        state["step"] = "all_watched"
+
         await query.edit_message_text(
             MSG["after_video"],
             reply_markup=kb_topics(),
         )
 
-    # ── Mesaj 4 + 5: Temă → warmup → ofertă consultație ──
+    # ── Temă → warmup → ofertă consultație ──────────────────────────
     elif data.startswith("topic_"):
         state["topic_chosen"] = True
         state["topic"] = data
         state["step"] = "topic_chosen"
 
-        # Edit current message to remove buttons
         await query.edit_message_reply_markup(reply_markup=None)
 
-        # Mesaj 4: Warmup
         await asyncio.sleep(1)
         await context.bot.send_message(chat_id=chat_id, text=MSG["warmup"])
 
-        # Mesaj 5: Ofertă consultație
         await asyncio.sleep(2)
         await context.bot.send_message(
             chat_id=chat_id,
@@ -225,7 +237,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         state["step"] = "consultation_offered"
 
-    # ── Cerere consultație (fără URL extern) ──
+    # ── Cerere consultație (fără URL extern) ────────────────────────
     elif data == "request_consultation":
         state["step"] = "consultation_requested"
         await query.edit_message_text(MSG["received"])
@@ -238,7 +250,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if step == "welcome":
         await update.message.reply_text(MSG["welcome"], reply_markup=kb_get_video())
-    elif step == "video_sent":
+    elif step in ("video1_sent", "video2_sent", "video3_sent"):
         await update.message.reply_text("Apasă «Am urmărit» când ești gata. 😊")
     else:
         await update.message.reply_text("Scrie /start pentru a reporni. 🔄")
