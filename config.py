@@ -16,7 +16,7 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "bologanvictor")
 
 # ── Alternative: numeric chat ID (more reliable) ──
 # Get yours from @userinfobot. Leave empty if using ADMIN_USERNAME.
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "bologanvictor")
 
 # ── Optional: external booking/consultation URL ───
 # If set, the "Vreau consultație" button opens this link directly.
