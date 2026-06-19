@@ -31,7 +31,7 @@ VIDEOS = {
     "v2": {
         "label": "🎬 Video 2 — Studiu de caz",
         "title": "Studiu de caz: de la blocaj la rezultat",
-        "url":   os.getenv("VIDEO_URL_2", "https://youtu.be/dwG5gXhxQzs?si=36hpYES5xNH3BOUc"),
+        "url":   os.getenv("VIDEO_URL_2", "https://youtu.be/dwG5gXhxQzs"),
     },
     "v3": {
         "label": "🎬 Video 3 — Reprogramarea subconștientului",
